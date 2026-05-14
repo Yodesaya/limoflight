@@ -28,6 +28,20 @@
     <link rel="modulepreload" crossorigin href="/limoflight/assets/faceapi-DKtltvYZ.js">
     <link rel="stylesheet" crossorigin href="/limoflight/assets/index-Doi3dAHC.css">
   </head>
+  <script>
+  (function(l) {
+    if (l.search[1] === '/') {
+      var decoded = l.search.slice(1).split('&').map(function(s) {
+        return s.replace(/~and~/g, '&')
+      });
+      window.history.replaceState(null, null,
+        l.pathname.slice(0, -1) + decoded[0] +
+        (decoded[1] ? '?' + decoded[1] : '') +
+        l.hash
+      );
+    }
+  }(window.location))
+  </script>
   <body>
     <div id="root"></div>
   </body>
