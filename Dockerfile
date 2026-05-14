@@ -1,8 +1,8 @@
 FROM node:20-alpine AS backend-builder
 WORKDIR /app/server
-COPY server/package.json ./
+COPY server/package.json .
 RUN npm install
-COPY server/ ./
+COPY server/ .
 
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
