@@ -1,0 +1,90 @@
+/* LimoFlight V4 — styles/brand.css
+   White-label CSS variables — override via JS: document.documentElement.style.setProperty()
+*/
+
+:root {
+  --brand-primary:      #C9A84C;
+  --brand-primary-light:#F0D080;
+  --brand-dark:         #08080E;
+  --brand-surface:      #111118;
+  --brand-card:         #16161F;
+  --brand-border:       rgba(201, 168, 76, 0.15);
+  --brand-text:         #E8E4D9;
+  --brand-muted:        #6A6560;
+  --brand-accent:       #1C1C27;
+  --brand-font:         'Playfair Display', serif;
+  --brand-font-body:    'DM Sans', system-ui, sans-serif;
+
+  /* Semantic */
+  --color-success:      #5DC48A;
+  --color-warning:      #C9A84C;
+  --color-danger:       #D47A7A;
+  --color-info:         #7AAAE0;
+  --color-premium:      #AFA9EC;
+
+  --color-success-bg:   rgba(58, 125, 90, 0.14);
+  --color-warning-bg:   rgba(201, 168, 76, 0.12);
+  --color-danger-bg:    rgba(139, 51, 51, 0.17);
+  --color-info-bg:      rgba(42, 74, 122, 0.22);
+  --color-premium-bg:   rgba(83, 74, 183, 0.18);
+}
+
+/* Global resets */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--brand-font-body);
+  background:  var(--brand-dark);
+  color:       var(--brand-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: var(--brand-card); }
+::-webkit-scrollbar-thumb  { background: var(--brand-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--brand-primary); }
+
+/* Form elements */
+input, select, textarea {
+  background: var(--brand-accent);
+  border:     1px solid var(--brand-border);
+  border-radius: 6px;
+  color:      var(--brand-text);
+  font-family: var(--brand-font-body);
+  font-size:  12px;
+  padding:    7px 10px;
+  outline:    none;
+  transition: border-color .15s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--brand-primary);
+}
+select option {
+  background: var(--brand-card);
+}
+
+/* Utility classes */
+.brand-color     { color: var(--brand-primary) !important; }
+.brand-bg        { background: var(--brand-primary) !important; }
+.brand-border    { border-color: var(--brand-primary) !important; }
+.font-display    { font-family: var(--brand-font) !important; }
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .3; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-pulse  { animation: pulse 1.8s ease-in-out infinite; }
+.animate-spin   { animation: spin  1s linear infinite; }
+.animate-fadeIn { animation: fadeIn .25s ease-out; }
