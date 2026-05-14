@@ -18,23 +18,18 @@ export default function Login() {
   const s = (k) => ({ ...baseInput, ...k })
 
   async function handleSubmit(e) {
-  e.preventDefault()
-  setError('')
-  setLoading(true)
-
-  // Demo login — ไม่ต้องการ backend
-  await new Promise(r => setTimeout(r, 800))
-
-  if (form.email === 'admin@limoflight.app' && form.password === 'LimoFlight2026!') {
-    const user = { id: '1', email: 'admin@limoflight.app', full_name: 'John Driver', plan: 'fleet' }
-    const token = 'demo-token-2026'
-    localStorage.setItem('lf_user', JSON.stringify(user))
-    localStorage.setItem('lf_token', token)
-    navigate('/')
-  } else {
-    setError('Invalid email or password')
-  }
-  setLoading(false)
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const result = await login(form.email, form.password)
+      if (result.requires2FA) { setShow2FA(true); setLoading(false); return }
+      navigate('/')
+    } catch (err) {
+      setError(err.message || 'Invalid credentials')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handle2FA(e) {

@@ -1,5 +1,6 @@
 // LimoFlight V4 — src/App.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+//import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 // Contexts
 import { AuthProvider, useAuth }  from './context/AuthContext'
@@ -29,9 +30,14 @@ import OpenTable, {
 
 import './styles/brand.css'
 
-function PrivateRoute({ children }) {
+/*function PrivateRoute({ children }) {
   const { user } = useAuth()
   return user ? children : <Navigate to="/login" replace />
+}*/
+function PrivateRoute({ children }) {
+  const { user } = useAuth()
+  const token = localStorage.getItem('lf_token')
+  return (user || token) ? children : <Navigate to="/login" replace />
 }
 
 export default function App() {
@@ -39,7 +45,7 @@ export default function App() {
     <AuthProvider>
       <BrandProvider>
         <NotificationProvider>
-          <BrowserRouter>
+          <HashRouter>
             <Routes>
               {/* Public */}
               <Route path="/login" element={<Login />} />
@@ -71,7 +77,7 @@ export default function App() {
               {/* Catch-all */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
-          </BrowserRouter>
+          </HashRouter>
         </NotificationProvider>
       </BrandProvider>
     </AuthProvider>
