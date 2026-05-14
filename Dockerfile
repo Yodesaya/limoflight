@@ -1,7 +1,8 @@
 FROM node:20-alpine AS backend-builder
 WORKDIR /app/server
 COPY server/package.json ./
-RUN npm install
+#RUN npm install
+RUN npm install --legacy-peer-deps
 COPY server/ ./
 
 FROM node:20-alpine AS frontend-builder
