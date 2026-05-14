@@ -215,5 +215,36 @@ function cosineSimilarity(a, b) {
   return dot / (magA * magB)
 }
 
+//เพิ่มใหม่
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', version: 'v4' })
+})
+
+// Auth login
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body
+  try {
+    const { rows } = await db.query(
+      'SELECT * FROM users WHERE email = $1', [email]
+    )
+    if (!rows.length) return res.status(401).json({ error: 'Invalid credentials' })
+    const user = rows[0]
+    const bcrypt = await import('bcrypt')
+    const valid = await bcrypt.default.compare(password, user.password_hash)
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
+    const jwt = await import('jsonwebtoken')
+    const token = jwt.default.sign(
+      { id: user.id, email: user.email, plan: user.plan, full_name: user.full_name },
+      process.env.JWT_SECRET || 'limoflight-secret',
+      { expiresIn: '7d' }
+    )
+    res.json({ token, user: { id: user.id, email: user.email, full_name: user.full_name, plan: user.plan } })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+//ถึงตรงนี้
+
 const PORT = process.env.PORT || 3001
 httpServer.listen(PORT, () => console.log(`[LimoFlight API] Running on port ${PORT}`))
