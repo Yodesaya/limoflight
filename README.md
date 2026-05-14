@@ -12,15 +12,15 @@ This project is under development. Stay tuned for updates!
 
 ## Project Structure
 
-- `digital-clock.html` - Digital clock application
+- `Limoflight.html` - Main Limoflight web application
 - `styles.css` - Styling for the application
 - `script.js` - JavaScript logic
 
 ## Features
 
-- Digital clock displaying multiple time zones
 - Modern and responsive UI
 - Real-time updates
+- Premium transportation and flight services
 
 ## How to Use
 
