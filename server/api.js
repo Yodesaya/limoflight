@@ -15,6 +15,7 @@ const io = new SocketIO(httpServer, { cors: { origin: process.env.ALLOWED_ORIGIN
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 
 // ── Middleware ─────────────────────────────────────────────────────────────
+app.set('trust proxy', 1)
 app.use(helmet())
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') }))
 app.use(rateLimit({ windowMs: 60_000, max: 120, message: 'Rate limit exceeded' }))
