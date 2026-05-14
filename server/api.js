@@ -10,12 +10,13 @@ import { Server as SocketIO } from 'socket.io'
 import pg from 'pg'
 
 const app = express()
+app.set('trust proxy', 1)
 const httpServer = createServer(app)
 const io = new SocketIO(httpServer, { cors: { origin: process.env.ALLOWED_ORIGINS } })
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 
 // ── Middleware ─────────────────────────────────────────────────────────────
-app.set('trust proxy', 1)
+//app.set('trust proxy', 1)
 app.use(helmet())
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') }))
 app.use(rateLimit({ windowMs: 60_000, max: 120, message: 'Rate limit exceeded' }))
