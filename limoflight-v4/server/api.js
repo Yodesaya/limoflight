@@ -494,5 +494,34 @@ function cosineSimilarity(a, b) {
   return dot / (magA * magB)
 }
 
+// ── Cloudinary face upload ────────────────────────────────────────────────
+app.post('/api/face/upload', authMiddleware, async (req, res) => {
+  try {
+    const { imageBase64, customerId } = req.body
+    if (!imageBase64) return res.status(400).json({ error: 'No image' })
+    const { v2: cloudinary } = await import('cloudinary')
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key:    process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    })
+    const result = await cloudinary.uploader.upload(imageBase64, {
+      folder:    'limoflight/faces',
+      public_id: `customer_${customerId || Date.now()}`,
+      transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }],
+    })
+    if (customerId) {
+      await db.query(
+        'UPDATE customers SET face_photo_url=$1, updated_at=NOW() WHERE id=$2 AND user_id=$3',
+        [result.secure_url, customerId, req.user.id]
+      )
+    }
+    res.json({ success: true, url: result.secure_url })
+  } catch (e) {
+    console.error('[Cloudinary]', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
 const PORT = process.env.PORT || 3001
 httpServer.listen(PORT, () => console.log(`[LimoFlight API] Running on port ${PORT}`))
