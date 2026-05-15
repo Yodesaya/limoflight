@@ -248,5 +248,78 @@ app.post('/api/auth/login', async (req, res) => {
 })
 //ถึงตรงนี้
 
+//----add new coding 
+// ── CLOUDINARY — Upload face photo ────────────────────────────────────────
+app.post('/api/face/upload', authMiddleware, async (req, res) => {
+  try {
+    const { imageBase64, customerId } = req.body
+    if (!imageBase64) return res.status(400).json({ error: 'No image data' })
+
+    // Upload to Cloudinary
+    const cloudinary = await import('cloudinary')
+    cloudinary.v2.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key:    process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    })
+
+    const uploadResult = await cloudinary.v2.uploader.upload(imageBase64, {
+      folder:         'limoflight/faces',
+      public_id:      `customer_${customerId || Date.now()}`,
+      transformation: [
+        { width: 400, height: 400, crop: 'fill', gravity: 'face' },
+        { quality: 'auto', fetch_format: 'auto' }
+      ],
+      // Security: ไม่ให้เข้าถึงโดยตรงโดยไม่มี signed URL
+      type: 'authenticated',
+    })
+
+    // Save URL to database
+    if (customerId) {
+      await db.query(
+        'UPDATE customers SET face_photo_url=$1, updated_at=NOW() WHERE id=$2 AND user_id=$3',
+        [uploadResult.secure_url, customerId, req.user.id]
+      )
+    }
+
+    res.json({
+      success:    true,
+      url:        uploadResult.secure_url,
+      public_id:  uploadResult.public_id,
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── CLOUDINARY — Delete face photo ────────────────────────────────────────
+app.delete('/api/face/photo/:customerId', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      'SELECT face_photo_url FROM customers WHERE id=$1 AND user_id=$2',
+      [req.params.customerId, req.user.id]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Not found' })
+
+    const cloudinary = await import('cloudinary')
+    cloudinary.v2.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key:    process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    })
+
+    const publicId = `limoflight/faces/customer_${req.params.customerId}`
+    await cloudinary.v2.uploader.destroy(publicId, { type: 'authenticated' })
+    await db.query(
+      'UPDATE customers SET face_photo_url=NULL WHERE id=$1',
+      [req.params.customerId]
+    )
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+//------------------
+
 const PORT = process.env.PORT || 3001
 httpServer.listen(PORT, () => console.log(`[LimoFlight API] Running on port ${PORT}`))
