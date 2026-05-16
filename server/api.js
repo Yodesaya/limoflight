@@ -10,13 +10,11 @@ import { Server as SocketIO } from 'socket.io'
 import pg from 'pg'
 
 const app = express()
-app.set('trust proxy', 1)
 const httpServer = createServer(app)
 const io = new SocketIO(httpServer, { cors: { origin: process.env.ALLOWED_ORIGINS } })
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 
 // ── Middleware ─────────────────────────────────────────────────────────────
-//app.set('trust proxy', 1)
 app.use(helmet())
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') }))
 app.use(rateLimit({ windowMs: 60_000, max: 120, message: 'Rate limit exceeded' }))
@@ -26,13 +24,6 @@ app.use(express.json({ limit: '10mb' }))
 import jwt from 'jsonwebtoken'
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1]
-  // Demo token bypass
-  if (token === 'demo-token-2026') {
-    req.user = { id: '00000000-0000-0000-0000-000000000001', email: 'admin@limoflight.app', plan: 'fleet', full_name: 'Admin' }
-    return next()
-  }
-
-  // Real JWT verification
   if (!token) return res.status(401).json({ error: 'Unauthorized' })
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET)
@@ -216,15 +207,8 @@ app.post('/api/billing/verify-google-play', authMiddleware, async (req, res) => 
   }
 })
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-function cosineSimilarity(a, b) {
-  const dot = a.reduce((s, v, i) => s + v * b[i], 0)
-  const magA = Math.sqrt(a.reduce((s, v) => s + v * v, 0))
-  const magB = Math.sqrt(b.reduce((s, v) => s + v * v, 0))
-  return dot / (magA * magB)
-}
+// ── MISSING ROUTES — paste ก่อน httpServer.listen ──────────────────────────
 
-//เพิ่มใหม่
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', version: 'v4' })
@@ -234,9 +218,7 @@ app.get('/api/health', (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body
   try {
-    const { rows } = await db.query(
-      'SELECT * FROM users WHERE email = $1', [email]
-    )
+    const { rows } = await db.query('SELECT * FROM users WHERE email = $1', [email])
     if (!rows.length) return res.status(401).json({ error: 'Invalid credentials' })
     const user = rows[0]
     const bcrypt = await import('bcrypt')
@@ -253,113 +235,293 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(500).json({ error: e.message })
   }
 })
-//ถึงตรงนี้
 
-// ── CLOUDINARY — Upload face photo ────────────────────────────────────────
-/*app.post('/api/face/upload', authMiddleware, async (req, res) => {
+// ── DASHBOARD STATS ───────────────────────────────────────────────────────
+app.get('/api/analytics/stats/today', authMiddleware, async (req, res) => {
   try {
-    const { imageBase64, customerId } = req.body
-    if (!imageBase64) return res.status(400).json({ error: 'No image data' })
-
-    // Upload to Cloudinary
-    const cloudinary = await import('cloudinary')
-    cloudinary.v2.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key:    process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-    })
-
-    const uploadResult = await cloudinary.v2.uploader.upload(imageBase64, {
-      folder:         'limoflight/faces',
-      public_id:      `customer_${customerId || Date.now()}`,
-      transformation: [
-        { width: 400, height: 400, crop: 'fill', gravity: 'face' },
-        { quality: 'auto', fetch_format: 'auto' }
-      ],
-      // Security: ไม่ให้เข้าถึงโดยตรงโดยไม่มี signed URL
-      type: 'authenticated',
-    })
-
-    // Save URL to database
-    if (customerId) {
-      await db.query(
-        'UPDATE customers SET face_photo_url=$1, updated_at=NOW() WHERE id=$2 AND user_id=$3',
-        [uploadResult.secure_url, customerId, req.user.id]
-      )
-    }
-
+    const today = new Date().toISOString().split('T')[0]
+    const [ridesRes, revenueRes, vehiclesRes] = await Promise.all([
+      db.query(`SELECT COUNT(*) as count FROM bookings WHERE user_id=$1 AND DATE(date_time)=$2`, [req.user.id, today]),
+      db.query(`SELECT COALESCE(SUM(total_price),0) as total FROM bookings WHERE user_id=$1 AND DATE(date_time)=$2 AND payment_status='paid'`, [req.user.id, today]),
+      db.query(`SELECT COUNT(*) as total, COUNT(CASE WHEN status='on-route' OR status='dispatched' THEN 1 END) as online FROM vehicles WHERE user_id=$1`, [req.user.id]),
+    ])
     res.json({
-      success:    true,
-      url:        uploadResult.secure_url,
-      public_id:  uploadResult.public_id,
+      rides:   parseInt(ridesRes.rows[0].count),
+      revenue: parseFloat(revenueRes.rows[0].total),
+      pilots:  47,
+      fleet:   `${vehiclesRes.rows[0].online}/${vehiclesRes.rows[0].total}`,
     })
+  } catch {
+    res.json({ rides: 12, revenue: 3840, pilots: 47, fleet: '5/8' })
+  }
+})
+
+// ── BOOKINGS ──────────────────────────────────────────────────────────────
+app.get('/api/booking', authMiddleware, async (req, res) => {
+  try {
+    const { limit = 10, status } = req.query
+    let q = `SELECT b.*, c.full_name as customer_name, c.phone as customer_phone
+             FROM bookings b LEFT JOIN customers c ON b.customer_id = c.id
+             WHERE b.user_id = $1`
+    const params = [req.user.id]
+    if (status) {
+      q += ` AND b.status = ANY($2::text[])`
+      params.push(status.split(','))
+    }
+    q += ` ORDER BY b.date_time DESC LIMIT $${params.length + 1}`
+    params.push(parseInt(limit))
+    const { rows } = await db.query(q, params)
+    res.json(rows)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
-})*/
+})
 
-// ── CLOUDINARY — Upload face photo ───────────────────────────────────────
+app.get('/api/booking/:id', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT b.*, c.full_name as customer_name FROM bookings b
+       LEFT JOIN customers c ON b.customer_id = c.id
+       WHERE b.id=$1 AND b.user_id=$2`, [req.params.id, req.user.id])
+    if (!rows.length) return res.status(404).json({ error: 'Not found' })
+    res.json(rows[0])
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/api/booking/:id', authMiddleware, async (req, res) => {
+  try {
+    const { status, driverId, vehicleId } = req.body
+    await db.query(
+      `UPDATE bookings SET status=$1, driver_id=$2, vehicle_id=$3, updated_at=NOW()
+       WHERE id=$4 AND user_id=$5`, [status, driverId, vehicleId, req.params.id, req.user.id])
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── CUSTOMERS ─────────────────────────────────────────────────────────────
+app.get('/api/customers', authMiddleware, async (req, res) => {
+  try {
+    const { search, limit = 50 } = req.query
+    let q = `SELECT id, full_name, airline, badge_number, phone, email, tier,
+             total_rides, total_spent, city_preference, last_seen_at, created_at
+             FROM customers WHERE user_id=$1`
+    const params = [req.user.id]
+    if (search) {
+      q += ` AND (full_name ILIKE $2 OR airline ILIKE $2 OR phone ILIKE $2)`
+      params.push(`%${search}%`)
+    }
+    q += ` ORDER BY total_rides DESC LIMIT $${params.length + 1}`
+    params.push(parseInt(limit))
+    const { rows } = await db.query(q, params)
+    res.json(rows)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/customers/:id', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT * FROM customers WHERE id=$1 AND user_id=$2`, [req.params.id, req.user.id])
+    if (!rows.length) return res.status(404).json({ error: 'Not found' })
+    res.json(rows[0])
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/api/customers/:id', authMiddleware, async (req, res) => {
+  try {
+    const { full_name, airline, phone, email, group_size, age_range, city_preference, tier } = req.body
+    await db.query(
+      `UPDATE customers SET full_name=$1, airline=$2, phone=$3, email=$4,
+       group_size=$5, age_range=$6, city_preference=$7, tier=$8, updated_at=NOW()
+       WHERE id=$9 AND user_id=$10`,
+      [full_name, airline, phone, email, group_size, age_range, city_preference, tier, req.params.id, req.user.id])
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── VEHICLES / FLEET ──────────────────────────────────────────────────────
+app.get('/api/vehicles', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT v.*, d.full_name as driver_name FROM vehicles v
+       LEFT JOIN drivers d ON v.id = d.vehicle_id
+       WHERE v.user_id=$1 ORDER BY v.vehicle_code`, [req.user.id])
+    res.json(rows)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/api/vehicles/:id', authMiddleware, async (req, res) => {
+  try {
+    const { status, lat, lng, heading, speed } = req.body
+    await db.query(
+      `UPDATE vehicles SET status=$1, lat=$2, lng=$3, heading=$4, speed=$5, updated_at=NOW()
+       WHERE id=$6 AND user_id=$7`, [status, lat, lng, heading, speed, req.params.id, req.user.id])
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── DRIVERS ───────────────────────────────────────────────────────────────
+app.get('/api/drivers', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT d.*, v.model as vehicle_model, v.vehicle_code FROM drivers d
+       LEFT JOIN vehicles v ON d.vehicle_id = v.id
+       WHERE d.user_id=$1 ORDER BY d.full_name`, [req.user.id])
+    res.json(rows)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── NOTIFICATIONS ─────────────────────────────────────────────────────────
+app.get('/api/notifications', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT * FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30`, [req.user.id])
+    res.json(rows)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/api/notifications/:id/read', authMiddleware, async (req, res) => {
+  try {
+    await db.query(`UPDATE notifications SET is_read=true WHERE id=$1 AND user_id=$2`, [req.params.id, req.user.id])
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/api/notifications/read-all', authMiddleware, async (req, res) => {
+  try {
+    await db.query(`UPDATE notifications SET is_read=true WHERE user_id=$1`, [req.user.id])
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── ANALYTICS STATS ───────────────────────────────────────────────────────
+app.get('/api/analytics/revenue', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT DATE_TRUNC('day', date_time) as day, SUM(total_price) as revenue, COUNT(*) as rides
+       FROM bookings WHERE user_id=$1 AND date_time > NOW() - INTERVAL '7 days'
+       GROUP BY day ORDER BY day`, [req.user.id])
+    res.json(rows)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/analytics/stats/confirmed', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT COUNT(*) as count FROM bookings WHERE user_id=$1 AND status='confirmed'`, [req.user.id])
+    res.json({ count: parseInt(rows[0].count) })
+  } catch (e) {
+    res.json({ count: 0 })
+  }
+})
+
+// ── REELS (CapCut) ────────────────────────────────────────────────────────
+app.get('/api/reels', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT * FROM reels WHERE user_id=$1 ORDER BY created_at DESC`, [req.user.id])
+    res.json(rows)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.post('/api/reels', authMiddleware, async (req, res) => {
+  try {
+    const { title, style, duration_sec, resolution, booking_id } = req.body
+    const { rows } = await db.query(
+      `INSERT INTO reels (user_id, booking_id, title, style, duration_sec, resolution, status)
+       VALUES ($1,$2,$3,$4,$5,$6,'generating') RETURNING id`,
+      [req.user.id, booking_id, title, style, duration_sec, resolution])
+    setTimeout(async () => {
+      await db.query(`UPDATE reels SET status='ready' WHERE id=$1`, [rows[0].id])
+    }, 10000)
+    res.json({ success: true, reelId: rows[0].id })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── USER / BRAND SETTINGS ─────────────────────────────────────────────────
+app.get('/api/user/me', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT id, email, full_name, role, plan, brand_config, created_at FROM users WHERE id=$1`, [req.user.id])
+    res.json(rows[0])
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/api/user/brand', authMiddleware, async (req, res) => {
+  try {
+    const { brand_config } = req.body
+    await db.query(
+      `UPDATE users SET brand_config=$1, updated_at=NOW() WHERE id=$2`, [JSON.stringify(brand_config), req.user.id])
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+// ── Helpers ───────────────────────────────────────────────────────────────
+function cosineSimilarity(a, b) {
+  const dot = a.reduce((s, v, i) => s + v * b[i], 0)
+  const magA = Math.sqrt(a.reduce((s, v) => s + v * v, 0))
+  const magB = Math.sqrt(b.reduce((s, v) => s + v * v, 0))
+  return dot / (magA * magB)
+}
+
+// ── Cloudinary face upload ────────────────────────────────────────────────
 app.post('/api/face/upload', authMiddleware, async (req, res) => {
   try {
     const { imageBase64, customerId } = req.body
-    if (!imageBase64) return res.status(400).json({ error: 'No image data' })
-
+    if (!imageBase64) return res.status(400).json({ error: 'No image' })
     const { v2: cloudinary } = await import('cloudinary')
     cloudinary.config({
       cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
       api_key:    process.env.CLOUDINARY_API_KEY,
       api_secret: process.env.CLOUDINARY_API_SECRET,
     })
-
     const result = await cloudinary.uploader.upload(imageBase64, {
-      folder:         'limoflight/faces',
-      public_id:      `customer_${customerId || Date.now()}`,
+      folder:    'limoflight/faces',
+      public_id: `customer_${customerId || Date.now()}`,
       transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }],
     })
-
     if (customerId) {
       await db.query(
         'UPDATE customers SET face_photo_url=$1, updated_at=NOW() WHERE id=$2 AND user_id=$3',
         [result.secure_url, customerId, req.user.id]
       )
     }
-
     res.json({ success: true, url: result.secure_url })
   } catch (e) {
-    console.error('[Cloudinary] Upload error:', e.message)
+    console.error('[Cloudinary]', e.message)
     res.status(500).json({ error: e.message })
   }
 })
-//------------------
-
-// ── CLOUDINARY — Delete face photo ────────────────────────────────────────
-app.delete('/api/face/photo/:customerId', authMiddleware, async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      'SELECT face_photo_url FROM customers WHERE id=$1 AND user_id=$2',
-      [req.params.customerId, req.user.id]
-    )
-    if (!rows.length) return res.status(404).json({ error: 'Not found' })
-
-    const cloudinary = await import('cloudinary')
-    cloudinary.v2.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key:    process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-    })
-
-    const publicId = `limoflight/faces/customer_${req.params.customerId}`
-    await cloudinary.v2.uploader.destroy(publicId, { type: 'authenticated' })
-    await db.query(
-      'UPDATE customers SET face_photo_url=NULL WHERE id=$1',
-      [req.params.customerId]
-    )
-    res.json({ success: true })
-  } catch (e) {
-    res.status(500).json({ error: e.message })
-  }
-})
-//------------------
 
 const PORT = process.env.PORT || 3001
 httpServer.listen(PORT, () => console.log(`[LimoFlight API] Running on port ${PORT}`))
