@@ -10,6 +10,7 @@ import { Server as SocketIO } from 'socket.io'
 import pg from 'pg'
 
 const app = express()
+app.set('trust proxy', 1)
 const httpServer = createServer(app)
 const io = new SocketIO(httpServer, { cors: { origin: process.env.ALLOWED_ORIGINS } })
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL })
@@ -30,7 +31,7 @@ function authMiddleware(req, res, next) {
     req.user = { id: '00000000-0000-0000-0000-000000000001', email: 'admin@limoflight.app', plan: 'fleet', full_name: 'Admin' }
     return next()
   }
-  
+
   if (!token) return res.status(401).json({ error: 'Unauthorized' })
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET)
